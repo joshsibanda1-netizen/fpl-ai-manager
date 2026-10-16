@@ -64,33 +64,40 @@ with right:
     st.subheader('Bench (GK first)')
     st.dataframe(pd.DataFrame(rows(lineup['bench'])), hide_index=True, use_container_width=True)
 
-st.subheader('Transfer analysis')
-st.caption('For accurate transfers, enter your CURRENT bank and each player’s actual selling price. Public gameweek picks can be stale.')
-bank_text = st.text_input('Current bank (£m)', placeholder='e.g. 1.2')
-with st.expander('Enter selling prices (£m) for each player'):
-    sales = {}
-    for p in squad:
-        sales[p['id']] = st.text_input(f"{p['name']} — selling price", key=f"sale_{p['id']}", placeholder='e.g. 6.4')
-
-if st.button('Calculate one-transfer recommendations'):
-    try:
-        bank = int(round(float(bank_text)*10))
-        assert bank >= 0
-        for p in squad:
-            p['selling_price'] = int(round(float(sales[p['id']])*10))
-            if p['selling_price'] < 0: raise ValueError('Negative selling price')
-        options = recommend_transfers(squad, all_players, bank)
-        if not options:
-            st.info('No affordable legal single-transfer candidates found.')
-        else:
-            st.dataframe(pd.DataFrame([{'Sell': x['out']['name'], 'Buy': x['in']['name'],
-                'Next GW XI gain': round(x['gain_next'],2),
-                f'{horizon}-GW player gain': round(x['gain_horizon'],2),
-                'Bank after (£m)': x['bank_after']/10} for x in options]),
-                hide_index=True, use_container_width=True)
-            st.warning('Recommendations are research only. Free transfers, price changes, deadlines, and squad updates must be verified on the official FPL site. No action is submitted.')
-    except (ValueError, AssertionError):
-        st.error('Enter a valid nonnegative bank and all 15 selling prices.')
+st.subheader('Automated transfer research')
+st.caption('Automatically generated from public FPL data. No manual bank or selling-price entry.')
+last_bank = entry.get('last_deadline_bank')
+if last_bank is not None:
+    st.metric('Last published bank (may be stale)', f"£{last_bank / 10:.1f}m")
+st.warning('Current selling prices, bank and unannounced transfers cannot be verified from public picks. Recommendations below are provisional, not confirmed affordable transfers.')
+existing = {p['id'] for p in squad}
+team_counts = {}
+for p in squad:
+    team_counts[p['team']] = team_counts.get(p['team'], 0) + 1
+candidates = []
+for outgoing in squad:
+    for incoming in all_players.values():
+        if incoming['id'] in existing or incoming['position'] != outgoing['position']:
+            continue
+        if team_counts.get(incoming['team'], 0) - int(outgoing['team'] == incoming['team']) >= 3:
+            continue
+        if incoming['status'] not in ('a', 'd'):
+            continue
+        improvement = incoming['total'] - outgoing['total']
+        if improvement <= 0:
+            continue
+        candidates.append({
+            'Sell': outgoing['name'], 'Consider buying': incoming['name'],
+            f'{horizon}-GW player xPts gain': round(improvement, 2),
+            'Buying price (£m)': incoming['price'] / 10,
+            'Affordability': 'Unverified',
+        })
+candidates.sort(key=lambda x: x[f'{horizon}-GW player xPts gain'], reverse=True)
+if candidates:
+    st.dataframe(pd.DataFrame(candidates[:12]), hide_index=True, use_container_width=True)
+    st.caption('Research shortlist only. Player-to-player comparisons are not confirmed legal transfers or guaranteed squad gains.')
+else:
+    st.info('No positive projected player swaps found.')
 
 st.subheader('Safety gate status')
 status = evaluate(policy=Policy(), points_hit=0, chip=None, budget_valid=False,
