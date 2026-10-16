@@ -1,30 +1,36 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime, timezone
 from fpl import load_team, FPLError
 from engine import projections, best_lineup, POSITIONS
 from safety import Policy, evaluate
 
 st.set_page_config(page_title='FPL Research Agent', layout='wide')
 st.title('FPL Research Agent — Team 1052748')
-st.caption('Live public player data; historical published team picks. No account login, transfer submission, or chip activation.')
+st.caption('Automatically refreshed public player data; historical published team picks. No account login, transfer submission, or chip activation.')
 with st.sidebar:
     team_id = st.number_input('Public team ID', min_value=1, value=1052748, step=1)
     horizon = st.slider('Projection horizon (gameweeks)', 1, 8, 5)
     st.warning('Emergency stop: ENGAGED. Execution disabled by design.')
+    st.caption('Public data cache expires after 15 minutes. Use Refresh public data for an immediate update.')
     if st.button('Refresh public data'):
         st.cache_data.clear()
 
-@st.cache_data(ttl=3600, show_spinner='Loading publicly accessible FPL data…')
+@st.cache_data(ttl=900, show_spinner='Loading publicly accessible FPL data…')
 def fetch(team_id):
-    return load_team(team_id)
+    return load_team(team_id), datetime.now(timezone.utc)
 
 try:
-    bootstrap, fixtures, entry, picks, picks_gw = fetch(team_id)
+    (bootstrap, fixtures, entry, picks, picks_gw), fetched_at = fetch(team_id)
 except (FPLError, KeyError, TypeError) as exc:
     st.error(f'Public data could not be loaded: {exc}')
     st.info('Check your team ID and try again later. No squad data has been invented.')
     st.stop()
 
+st.caption(f'Public data fetched: {fetched_at.strftime("%d %b %Y %H:%M UTC")}. Data refreshes when the dashboard is opened or rerun, not continuously in the background.')
+latest_started = max((e['id'] for e in bootstrap['events'] if e.get('is_current') or e.get('finished')), default=None)
+if latest_started is not None and (picks_gw is None or picks_gw < latest_started):
+    st.warning(f'Published squad GW {picks_gw} is older than latest started/finished GW {latest_started}.')
 all_players, next_gw = projections(bootstrap, fixtures, horizon)
 st.subheader(entry.get('name', 'Your team'))
 st.write(f'Projection begins at GW {next_gw}. Model is a heuristic baseline, not a trained forecast.')
