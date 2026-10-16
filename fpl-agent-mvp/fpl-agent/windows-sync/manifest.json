@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "FPL Read-only Squad Export",
+  "version": "0.1.0",
+  "description": "Exports your own FPL squad and finances locally; no remote upload.",
+  "permissions": [
+    "activeTab",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://fantasy.premierleague.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
