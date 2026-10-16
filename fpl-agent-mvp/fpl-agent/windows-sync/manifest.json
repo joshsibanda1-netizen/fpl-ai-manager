@@ -5,7 +5,7 @@
   "description": "Exports your own FPL squad and finances locally; no remote upload.",
   "permissions": [
     "activeTab",
-    "downloads"
+    "scripting"
   ],
   "host_permissions": [
     "https://fantasy.premierleague.com/*"
