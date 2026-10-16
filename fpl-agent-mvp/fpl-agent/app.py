@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import json
 from datetime import datetime, timezone
 from fpl import load_team, FPLError
 from engine import projections, best_lineup, POSITIONS
@@ -70,6 +71,45 @@ with left:
 with right:
     st.subheader('Illustrative bench (GK first)')
     st.dataframe(pd.DataFrame(rows(lineup['bench'])), hide_index=True, use_container_width=True)
+
+st.subheader('Current account squad — optional local export')
+st.caption('Use the Windows Chrome companion to export your signed-in FPL team, then upload the local JSON file here. The file is processed during this session and is not committed to GitHub.')
+uploaded = st.file_uploader('Upload fpl-my-team.json', type=['json'])
+account_squad = None
+account_bank = None
+if uploaded is not None:
+    try:
+        raw = json.load(uploaded)
+        if raw.get('schema_version') != 1 or raw.get('team_id') != int(team_id):
+            raise ValueError('Export schema or team ID does not match.')
+        raw_picks = raw.get('picks')
+        raw_transfers = raw.get('transfers')
+        if not isinstance(raw_picks, list) or len(raw_picks) != 15 or not isinstance(raw_transfers, dict):
+            raise ValueError('Expected exactly 15 picks and transfer details.')
+        ids = [int(p['element']) for p in raw_picks]
+        if len(set(ids)) != 15 or any(i not in all_players for i in ids):
+            raise ValueError('Invalid or duplicate player IDs.')
+        account_bank = int(raw_transfers['bank'])
+        if account_bank < 0:
+            raise ValueError('Invalid bank balance.')
+        account_squad = []
+        for pick in raw_picks:
+            player = dict(all_players[int(pick['element'])])
+            player['selling_price'] = int(pick['selling_price'])
+            account_squad.append(player)
+        st.success(f"Imported your 15-player account snapshot. Bank: £{account_bank/10:.1f}m. Exported: {raw.get('exported_at', 'unknown time')}.")
+        st.warning('This is a snapshot, not continuous sync. Re-export after making transfers. No transactions are submitted.')
+    except (ValueError, KeyError, TypeError, OverflowError) as exc:
+        st.error(f'Invalid account export: {exc}')
+        account_squad = None
+if account_squad is not None:
+    current_lineup = best_lineup(account_squad)
+    a, b, c = st.columns(3)
+    a.metric('Snapshot XI + captain projection', f"{current_lineup['expected']:.1f} pts")
+    b.metric('Snapshot captain', current_lineup['captain']['name'])
+    c.metric('Snapshot vice captain', current_lineup['vice']['name'])
+    st.dataframe(pd.DataFrame([{'Player':p['name'],'Position':POSITIONS[p['position']],'Selling price (£m)':p['selling_price']/10,'Next GW xPts':round(p['next'],2)} for p in account_squad]), hide_index=True, use_container_width=True)
+    st.info('Account-specific transfer recommendations remain disabled pending deadline, free-transfer and snapshot freshness checks.')
 
 st.subheader('Player market watch — no account-specific transfer advice')
 st.warning('Account-specific transfers are paused. The app cannot confirm which players you own, your bank, selling prices or free transfers. Showing buy/sell recommendations here would be misleading.')
